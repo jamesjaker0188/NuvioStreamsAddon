@@ -345,6 +345,11 @@ async function resolveIntermediateLink(initialUrl, refererUrl, quality) {
         }
     } catch (error) {
         console.error(`[MoviesMod] Error resolving intermediate link: ${error.message}`);
+        if (error.response) {
+            console.error('[MoviesMod] Intermediate link resolution failed with status:', error.response.status);
+            console.error('[MoviesMod] Response data:', JSON.stringify(error.response.data, null, 2).substring(0, 500));
+        }
+        console.error('[MoviesMod] Request config:', error.config);
         return [];
     }
 }
@@ -461,9 +466,36 @@ async function resolveTechUnblockedLink(sidUrl) {
     console.error(`  [SID] Error during SID resolution: ${error.message}`);
     if (error.response) {
       console.error(`  [SID] Status: ${error.response.status}`);
+      console.error(`  [SID] Data: ${JSON.stringify(error.response.data, null, 2).substring(0, 500)}`);
+      console.error(`  [SID] Headers: ${JSON.stringify(error.response.headers, null, 2)}`);
     }
+    console.error(`  [SID] Request URL: ${error.config ? error.config.url : 'N/A'}`);
     return null;
   }
+}
+
+// NEW: Function to resolve gdrivepro.xyz links
+async function resolveGdriveproLink(gdriveUrl) {
+    console.log(`[MoviesMod] Resolving gdrivepro.xyz link: ${gdriveUrl}`);
+    try {
+        const response = await axios.get(gdriveUrl, {
+            maxRedirects: 5, // Follow redirects
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.9',
+            }
+        });
+        const finalUrl = response.request.res.responseUrl;
+        console.log(`[MoviesMod] gdrivepro.xyz resolved to: ${finalUrl}`);
+        return finalUrl;
+    } catch (error) {
+        console.error(`[MoviesMod] Failed to resolve gdrivepro.xyz link: ${error.message}`);
+        if (error.response) {
+            console.error(`  [gdrivepro] Status: ${error.response.status}`);
+        }
+        return null;
+    }
 }
 
 // Resolve driveseed.org links to get download options
@@ -872,6 +904,18 @@ async function getMoviesModStreams(tmdbId, mediaType, seasonNum = null, episodeN
                         currentUrl = resolvedUrl; // The resolved URL should be a driveseed link
                     }
                     
+                    // NEW: Handle gdrivepro.xyz links
+                    if (currentUrl.includes('gdrivepro.xyz')) {
+                        console.log(`[MoviesMod] Resolving gdrivepro link: ${currentUrl}`);
+                        const resolvedUrl = await resolveGdriveproLink(currentUrl);
+                        if (!resolvedUrl) {
+                             console.warn(`[MoviesMod] Failed to resolve gdrivepro.xyz for: ${currentUrl}`);
+                            return null;
+                        }
+                        console.log(`[MoviesMod] Resolved. Continuing with URL: ${resolvedUrl}`);
+                        currentUrl = resolvedUrl;
+                    }
+
                     // Step 2: Now process the (potentially resolved) driveseed link
                     if (currentUrl.includes('driveseed.org')) {
                         const { downloadOptions, size: driveseedSize, fileName } = await resolveDriveseedLink(currentUrl);

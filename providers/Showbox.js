@@ -1079,12 +1079,12 @@ const _searchAndExtractShowboxUrl = async (searchTerm, originalTmdbTitle, mediaY
         let useResult = false;
 
         // Use score-based confidence for validation
-        if (bestResult.score >= 25 && bestResult.isCorrectType) {
-            useResult = true;
-        } else {
-            console.log(`  Low confidence match (Score: ${bestResult.score.toFixed(1)}). Discarding.`);
-            useResult = false;
-        }
+            if (bestResult.score >= 25 && bestResult.isCorrectType) {
+                useResult = true;
+            } else {
+                 console.log(`  Low confidence match (Score: ${bestResult.score.toFixed(1)}). Discarding.`);
+                 useResult = false;
+            }
 
         if (useResult && bestResult.url) {
             console.log(`  Best overall match: ${bestResult.url} (Score: ${bestResult.score.toFixed(1)}, Strategy: ${bestResult.strategy})`);
