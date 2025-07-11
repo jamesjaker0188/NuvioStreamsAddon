@@ -372,8 +372,23 @@ async function resolveTechUnblockedLink(sidUrl) {
 
   try {
     // Step 0: Get the _wp_http value
-    console.log("  [SID] Step 0: Fetching initial page...");
-    const responseStep0 = await session.get(sidUrl);
+    const proxyUrl = process.env.SID_RESOLVER_PROXY;
+    let responseStep0;
+
+    if (proxyUrl) {
+        console.log("  [SID] Step 0: Fetching initial page via configured proxy...");
+        const proxiedSidUrl = `${proxyUrl}${encodeURIComponent(sidUrl)}`;
+        try {
+            responseStep0 = await session.get(proxiedSidUrl, { timeout: 15000 }); // 15-second timeout for proxy
+        } catch (proxyError) {
+            console.warn(`  [SID] Proxy request to ${proxyUrl} failed: ${proxyError.message}. Falling back to direct connection.`);
+            responseStep0 = await session.get(sidUrl);
+        }
+    } else {
+        console.log("  [SID] Step 0: Fetching initial page directly (no proxy configured)...");
+        responseStep0 = await session.get(sidUrl);
+    }
+
     let $ = cheerio.load(responseStep0.data);
     const initialForm = $('#landing');
     const wp_http_step1 = initialForm.find('input[name="_wp_http"]').val();
