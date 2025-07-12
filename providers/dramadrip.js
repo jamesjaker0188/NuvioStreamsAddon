@@ -270,23 +270,12 @@ async function resolveTechUnblockedLink(sidUrl) {
 
   try {
     // Step 0: Get the _wp_http value
-    const proxyUrl = process.env.SID_RESOLVER_PROXY;
-    let responseStep0;
-
-    if (proxyUrl) {
-        console.log("  [SID] Step 0: Fetching initial page via configured proxy...");
-        const proxiedSidUrl = `${proxyUrl}${encodeURIComponent(sidUrl)}`;
-        try {
-            responseStep0 = await session.get(proxiedSidUrl, { timeout: 15000 }); // 15-second timeout for proxy
-        } catch (proxyError) {
-            console.warn(`  [SID] Proxy request to ${proxyUrl} failed: ${proxyError.message}. Falling back to direct connection.`);
-            responseStep0 = await session.get(sidUrl);
-        }
-    } else {
-        console.log("  [SID] Step 0: Fetching initial page directly (no proxy configured)...");
-        responseStep0 = await session.get(sidUrl);
-    }
-
+    console.log("  [SID] Step 0: Fetching initial page via proxy...");
+    const envProxy = process.env.SID_RESOLVER_PROXY;
+    const proxyUrl = (typeof envProxy === 'string' && /^https?:/i.test(envProxy)) ? envProxy : null;
+    const proxify = (url) => proxyUrl ? `${proxyUrl}${encodeURIComponent(url)}` : url;
+    const proxiedSidUrl = proxify(sidUrl);
+    const responseStep0 = await session.get(proxiedSidUrl);
     let $ = cheerio.load(responseStep0.data);
     const initialForm = $('#landing');
     const wp_http_step1 = initialForm.find('input[name="_wp_http"]').val();
@@ -300,8 +289,9 @@ async function resolveTechUnblockedLink(sidUrl) {
     // Step 1: POST to the first form's action URL
     console.log("  [SID] Step 1: Submitting initial form...");
     const step1Data = new URLSearchParams({ '_wp_http': wp_http_step1 });
-    const responseStep1 = await session.post(action_url_step1, step1Data, {
-      headers: { 'Referer': sidUrl, 'Content-Type': 'application/x-www-form-urlencoded' }
+    const absoluteActionUrl1 = new URL(action_url_step1, origin).href;
+    const responseStep1 = await session.post(proxify(absoluteActionUrl1), step1Data, {
+      headers: { 'Referer': proxiedSidUrl, 'Content-Type': 'application/x-www-form-urlencoded' }
     });
 
     // Step 2: Parse verification page for second form
@@ -320,7 +310,8 @@ async function resolveTechUnblockedLink(sidUrl) {
     // Step 3: POST to the verification URL
     console.log("  [SID] Step 3: Submitting verification...");
     const step2Data = new URLSearchParams({ '_wp_http2': wp_http2, 'token': token });
-    const responseStep2 = await session.post(action_url_step2, step2Data, {
+    const absoluteActionUrl2 = new URL(action_url_step2, origin).href;
+    const responseStep2 = await session.post(proxify(absoluteActionUrl2), step2Data, {
       headers: { 'Referer': responseStep1.request.res.responseUrl, 'Content-Type': 'application/x-www-form-urlencoded' }
     });
 
@@ -353,9 +344,10 @@ async function resolveTechUnblockedLink(sidUrl) {
 
     // Step 5: Set cookie and make final request
     console.log("  [SID] Step 5: Setting cookie and making final request...");
-    await jar.setCookie(`${cookieName}=${cookieValue}`, origin);
+    const cookieDomain = proxyUrl ? new URL(proxyUrl).origin : origin;
+    await jar.setCookie(`${cookieName}=${cookieValue}`, cookieDomain);
     
-    const finalResponse = await session.get(finalUrl, {
+    const finalResponse = await session.get(proxify(finalUrl), {
       headers: { 'Referer': responseStep2.request.res.responseUrl }
     });
 
