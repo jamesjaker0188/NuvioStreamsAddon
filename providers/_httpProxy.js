@@ -18,6 +18,16 @@ function proxify(url) {
   // Avoid double-prefixing
   if (url.startsWith(PROXY_PREFIX)) return url;
 
+  // Skip TMDB API and image domains – no need to proxy those
+  try {
+    const { hostname } = new URL(url);
+    if (hostname.endsWith('themoviedb.org')) {
+      return url;
+    }
+  } catch (_) {
+    /* ignore parse failures */
+  }
+
   proxifyCount += 1;
   if (proxifyCount <= 5) {
     // Log only the first few to avoid massive console spam
