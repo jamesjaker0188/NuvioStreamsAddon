@@ -13,21 +13,29 @@ const fs = require('fs').promises;
 const path = require('path');
 const { findBestMatch } = require('string-similarity');
 // NEW: universal proxifier
+console.log('[MoviesMod] Loading proxy helper...');
 const { proxify } = require('./_httpProxy');
+console.log('[MoviesMod] Proxy helper loaded successfully');
 
 // Monkey-patch axios with an opt-out flag `_skipProxy`
+console.log('[MoviesMod] Setting up axios monkey-patch...');
 ['get', 'head', 'post'].forEach((method) => {
   const original = axios[method].bind(axios);
   axios[method] = (...args) => {
     const cfgIdx = method === 'post' ? 2 : 1; // post(url,data,config)
     const maybeCfg = args[cfgIdx];
     const skip = maybeCfg && maybeCfg._skipProxy;
+    
+    console.log(`[MoviesMod] axios.${method} called - URL: ${typeof args[0] === 'string' ? args[0].slice(0, 100) : 'not string'}..., skip: ${skip}`);
+    
     if (!skip && typeof args[0] === 'string') {
+      console.log(`[MoviesMod] Calling proxify for: ${args[0].slice(0, 100)}...`);
       args[0] = proxify(args[0]);
     }
     return original(...args);
   };
 });
+console.log('[MoviesMod] Axios monkey-patch setup complete');
 
 function escapeRegExp(string) {
   return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // $& means the whole matched string
