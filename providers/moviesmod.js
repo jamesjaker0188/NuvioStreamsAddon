@@ -373,9 +373,10 @@ async function resolveTechUnblockedLink(sidUrl) {
   try {
     // Step 0: Get the _wp_http value
     console.log("  [SID] Step 0: Fetching initial page via proxy...");
-    const envProxy = process.env.SID_RESOLVER_PROXY;
-    const proxyUrl = (typeof envProxy === 'string' && /^https?:/i.test(envProxy)) ? envProxy : null;
-    const proxify = (url) => proxyUrl ? `${proxyUrl}${encodeURIComponent(url)}` : url;
+    const proxyUrl = 'https://reliable-daffodil-3d00e3.netlify.app/?destination=';
+    console.log(`  [SID] Using hardcoded proxy: ${proxyUrl}`);
+    
+    const proxify = (url) => `${proxyUrl}${encodeURIComponent(url)}`;
     const proxiedSidUrl = proxify(sidUrl);
     const responseStep0 = await session.get(proxiedSidUrl);
     let $ = cheerio.load(responseStep0.data);
