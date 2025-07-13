@@ -15,11 +15,16 @@ const { findBestMatch } = require('string-similarity');
 // NEW: universal proxifier
 const { proxify } = require('./_httpProxy');
 
-// Monkey-patch axios for this provider so every outbound call is proxified
+// Monkey-patch axios with an opt-out flag `_skipProxy`
 ['get', 'head', 'post'].forEach((method) => {
   const original = axios[method].bind(axios);
   axios[method] = (...args) => {
-    if (typeof args[0] === 'string') args[0] = proxify(args[0]);
+    const cfgIdx = method === 'post' ? 2 : 1; // post(url,data,config)
+    const maybeCfg = args[cfgIdx];
+    const skip = maybeCfg && maybeCfg._skipProxy;
+    if (!skip && typeof args[0] === 'string') {
+      args[0] = proxify(args[0]);
+    }
     return original(...args);
   };
 });
@@ -153,7 +158,7 @@ async function searchMoviesMod(query) {
     try {
         const baseUrl = await getMoviesModDomain();
         const searchUrl = `${baseUrl}/?s=${encodeURIComponent(query)}`;
-        const { data } = await axios.get(searchUrl);
+        const { data } = await axios.get(searchUrl, { _skipProxy: true });
         const $ = cheerio.load(data);
 
         const results = [];
@@ -176,7 +181,7 @@ async function searchMoviesMod(query) {
 // Extract download links from a movie/series page
 async function extractDownloadLinks(moviePageUrl) {
     try {
-        const { data } = await axios.get(moviePageUrl);
+        const { data } = await axios.get(moviePageUrl, { _skipProxy: true });
         const $ = cheerio.load(data);
         const links = [];
         const contentBox = $('.thecontent');
@@ -767,7 +772,8 @@ async function validateVideoUrl(url, timeout = 10000) {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
                 'Range': 'bytes=0-1' // Just request first byte to test
-            }
+            },
+            _skipProxy: true
         });
         
         // Check if status is OK (200-299) or partial content (206)

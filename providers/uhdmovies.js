@@ -10,11 +10,14 @@ const path = require('path');
 // NEW: universal proxifier
 const { proxify } = require('./_httpProxy');
 
-// Monkey-patch axios for this provider so every outbound call is proxified
+// Monkey-patch global axios with `_skipProxy` support
 ['get', 'head', 'post'].forEach((method) => {
   const original = axios[method].bind(axios);
   axios[method] = (...args) => {
-    if (typeof args[0] === 'string') args[0] = proxify(args[0]);
+    const cfgIdx = method === 'post' ? 2 : 1;
+    const maybeCfg = args[cfgIdx];
+    const skip = maybeCfg && maybeCfg._skipProxy;
+    if (!skip && typeof args[0] === 'string') args[0] = proxify(args[0]);
     return original(...args);
   };
 });
@@ -121,6 +124,18 @@ const axiosInstance = axios.create({
   timeout: 30000
 });
 
+// Patch axiosInstance with same skip-aware logic
+['get', 'head', 'post'].forEach((method) => {
+  const original = axiosInstance[method].bind(axiosInstance);
+  axiosInstance[method] = (...args) => {
+    const cfgIdx = method === 'post' ? 2 : 1;
+    const maybeCfg = args[cfgIdx];
+    const skip = maybeCfg && maybeCfg._skipProxy;
+    if (!skip && typeof args[0] === 'string') args[0] = proxify(args[0]);
+    return original(...args);
+  };
+});
+
 // Simple In-Memory Cache
 const uhdMoviesCache = {
   search: {},
@@ -135,7 +150,7 @@ async function searchMovies(query) {
     console.log(`[UHDMovies] Searching for: ${query}`);
     const searchUrl = `${baseUrl}/search/${encodeURIComponent(query)}`;
     
-    const response = await axiosInstance.get(searchUrl);
+    const response = await axiosInstance.get(searchUrl, { _skipProxy: true });
     const $ = cheerio.load(response.data);
     
     const searchResults = [];
@@ -250,7 +265,7 @@ function extractCleanQuality(fullQualityText) {
 async function extractTvShowDownloadLinks(showPageUrl, season, episode) {
   try {
     console.log(`[UHDMovies] Extracting TV show links from: ${showPageUrl} for S${season}E${episode}`);
-    const response = await axiosInstance.get(showPageUrl);
+    const response = await axiosInstance.get(showPageUrl, { _skipProxy: true });
     const $ = cheerio.load(response.data);
 
     const showTitle = $('h1').first().text().trim();
@@ -367,7 +382,7 @@ async function extractTvShowDownloadLinks(showPageUrl, season, episode) {
 async function extractDownloadLinks(moviePageUrl, targetYear = null) {
   try {
     console.log(`[UHDMovies] Extracting links from: ${moviePageUrl}`);
-    const response = await axiosInstance.get(moviePageUrl);
+    const response = await axiosInstance.get(moviePageUrl, { _skipProxy: true });
     const $ = cheerio.load(response.data);
     
     const movieTitle = $('h1').first().text().trim();
@@ -660,8 +675,9 @@ async function validateVideoUrl(url, timeout = 10000) {
         const response = await axiosInstance.head(url, {
             timeout,
             headers: {
-                'Range': 'bytes=0-1' // Just request first byte to test
-            }
+                'Range': 'bytes=0-1'
+            },
+            _skipProxy: true
         });
         
         // Check if status is OK (200-299) or partial content (206)

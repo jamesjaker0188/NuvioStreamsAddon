@@ -9,11 +9,13 @@ const FormData = require('form-data');
 // NEW: universal proxifier
 const { proxify } = require('./_httpProxy');
 
-// Monkey-patch global axios immediately
+// Monkey-patch global axios with optional `_skipProxy`
 ['get', 'head', 'post'].forEach((method) => {
   const original = axios[method].bind(axios);
   axios[method] = (...args) => {
-    if (typeof args[0] === 'string') args[0] = proxify(args[0]);
+    const cfgIdx = method === 'post' ? 2 : 1;
+    const skip = args[cfgIdx] && args[cfgIdx]._skipProxy;
+    if (!skip && typeof args[0] === 'string') args[0] = proxify(args[0]);
     return original(...args);
   };
 });
@@ -67,8 +69,17 @@ const axiosInstance = axios.create({
 ['get', 'head', 'post'].forEach((method) => {
   const original = axiosInstance[method].bind(axiosInstance);
   axiosInstance[method] = (...args) => {
-    if (typeof args[0] === 'string') args[0] = proxify(args[0]);
+    const cfgIdx = method === 'post' ? 2 : 1;
+    const skip = args[cfgIdx] && args[cfgIdx]._skipProxy;
+    if (!skip && typeof args[0] === 'string') args[0] = proxify(args[0]);
     return original(...args);
+  };
+  const originalInst = axiosInstance[method].bind(axiosInstance);
+  axiosInstance[method] = (...args) => {
+    const cfgIdx2 = method === 'post' ? 2 : 1;
+    const skip2 = args[cfgIdx2] && args[cfgIdx2]._skipProxy;
+    if (!skip2 && typeof args[0] === 'string') args[0] = proxify(args[0]);
+    return originalInst(...args);
   };
 });
 
@@ -78,8 +89,8 @@ async function searchMovies(query) {
         const baseUrl = await getTopMoviesDomain();
         const searchUrl = `${baseUrl}/search/${encodeURIComponent(query)}`;
         console.log(`Searching: ${searchUrl}`);
-        
-        const { data } = await axiosInstance.get(searchUrl);
+
+        const { data } = await axiosInstance.get(searchUrl, { _skipProxy: true });
         const $ = cheerio.load(data);
 
         const results = [];
@@ -104,7 +115,7 @@ async function searchMovies(query) {
 async function extractDownloadLinks(moviePageUrl) {
     try {
         console.log(`\nExtracting download links from: ${moviePageUrl}`);
-        const { data } = await axiosInstance.get(moviePageUrl);
+        const { data } = await axiosInstance.get(moviePageUrl, { _skipProxy: true });
         const $ = cheerio.load(data);
         
         const links = [];
@@ -435,7 +446,8 @@ async function validateVideoUrl(url, timeout = 10000) {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
                 'Range': 'bytes=0-1' // Just request first byte to test
-            }
+            },
+            _skipProxy: true
         });
         
         // Check if status is OK (200-299) or partial content (206)

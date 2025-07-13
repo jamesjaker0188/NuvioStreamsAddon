@@ -92,6 +92,25 @@ const saveToCache = async (key, data) => {
 // Initialize cache directory
 ensureCacheDir();
 
+// NEW: universal proxifier
+const { proxify } = require('./_httpProxy');
+
+// Allow callers to bypass the proxy by passing `{ _skipProxy: true }` in axios config
+['get', 'head', 'post'].forEach((method) => {
+  const original = axios[method].bind(axios);
+  axios[method] = (...args) => {
+    // args[0] is URL (string) or config, args[1] may be config for get/head, body for post
+    let urlIdx = 0;
+    let cfgIdx = method === 'post' ? 2 : 1; // post(url, data, config)
+    const maybeConfig = args[cfgIdx];
+    const skip = maybeConfig && maybeConfig._skipProxy;
+    if (!skip && typeof args[0] === 'string') {
+       args[0] = proxify(args[0]);
+    }
+    return original(...args);
+  };
+});
+
 // Helper function to parse quality strings into numerical values
 function parseQuality(qualityString) {
     if (!qualityString || typeof qualityString !== 'string') return 0;
@@ -121,7 +140,7 @@ async function searchDramaDrip(query) {
         const baseUrl = await getDramaDripDomain();
         const searchUrl = `${baseUrl}/?s=${encodeURIComponent(query)}`;
         console.log(`[DramaDrip] Searching for: "${query}"`);
-        const { data } = await axios.get(searchUrl);
+        const { data } = await axios.get(searchUrl, { _skipProxy: true });
         const $ = cheerio.load(data);
         const results = [];
 
@@ -273,7 +292,6 @@ async function resolveTechUnblockedLink(sidUrl) {
     console.log("  [SID] Step 0: Fetching initial page via proxy...");
     const envProxy = process.env.SID_RESOLVER_PROXY;
     const proxyUrl = (typeof envProxy === 'string' && /^https?:/i.test(envProxy)) ? envProxy : null;
-    const proxify = (url) => proxyUrl ? `${proxyUrl}${encodeURIComponent(url)}` : url;
     const proxiedSidUrl = proxify(sidUrl);
     const responseStep0 = await session.get(proxiedSidUrl);
     let $ = cheerio.load(responseStep0.data);
@@ -430,7 +448,8 @@ async function validateVideoUrl(url, timeout = 10000) {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
                 'Range': 'bytes=0-1' // Just request first byte to test
-            }
+            },
+            _skipProxy: true
         });
         
         // Check if status is OK (200-299) or partial content (206)
@@ -506,6 +525,15 @@ async function getDramaDripStreams(tmdbId, mediaType, seasonNum, episodeNum) {
             const { data: tmdbData } = await axios.get(`https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`);
             const title = mediaType === 'tv' ? tmdbData.name : tmdbData.title;
             const year = mediaType === 'tv' ? (tmdbData.first_air_date || '').substring(0, 4) : (tmdbData.release_date || '').substring(0, 4);
+
+            // Only proceed for Korean/Chinese/Taiwanese dramas (k-drama, c-drama, tw-drama)
+            // Asian drama languages (exclude Hindi)
+            const allowedLangs = ['ko', 'zh', 'ja', 'th', 'id', 'tl', 'vi', 'ms'];
+            const origLang = tmdbData.original_language;
+            if (!allowedLangs.includes(origLang)) {
+                console.log(`[DramaDrip] Skipping – original_language '${origLang}' not in ${allowedLangs.join(',')}`);
+                return [];
+            }
 
             console.log(`[DramaDrip] Searching for: "${title}" (${year})`);
             const searchResults = await searchDramaDrip(title);
