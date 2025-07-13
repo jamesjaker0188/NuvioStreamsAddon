@@ -7,6 +7,18 @@ const { wrapper } = require('axios-cookiejar-support');
 const fs = require('fs').promises;
 const path = require('path');
 
+// NEW: universal proxifier
+const { proxify } = require('./_httpProxy');
+
+// Monkey-patch axios for this provider so every outbound call is proxified
+['get', 'head', 'post'].forEach((method) => {
+  const original = axios[method].bind(axios);
+  axios[method] = (...args) => {
+    if (typeof args[0] === 'string') args[0] = proxify(args[0]);
+    return original(...args);
+  };
+});
+
 // --- Domain Fetching ---
 let uhdMoviesDomain = 'https://uhdmovies.email'; // Fallback domain
 let domainCacheTimestamp = 0;
@@ -889,7 +901,6 @@ async function resolveSidToDriveleech(sidUrl) {
     console.log("  [SID] Step 0: Fetching initial page via proxy...");
     const envProxy = process.env.SID_RESOLVER_PROXY;
     const proxyUrl = (typeof envProxy === 'string' && /^https?:/i.test(envProxy)) ? envProxy : null;
-    const proxify = (url) => proxyUrl ? `${proxyUrl}${encodeURIComponent(url)}` : url;
     const proxiedSidUrl = proxify(sidUrl);
     const responseStep0 = await session.get(proxiedSidUrl);
     let $ = cheerio.load(responseStep0.data);

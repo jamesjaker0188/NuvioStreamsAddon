@@ -6,6 +6,17 @@ const { CookieJar } = require('tough-cookie');
 const { wrapper } = require('axios-cookiejar-support');
 const { URLSearchParams, URL } = require('url');
 const FormData = require('form-data');
+// NEW: universal proxifier
+const { proxify } = require('./_httpProxy');
+
+// Monkey-patch global axios immediately
+['get', 'head', 'post'].forEach((method) => {
+  const original = axios[method].bind(axios);
+  axios[method] = (...args) => {
+    if (typeof args[0] === 'string') args[0] = proxify(args[0]);
+    return original(...args);
+  };
+});
 
 // --- Domain Fetching ---
 let topMoviesDomain = 'https://topmovies.rodeo'; // Fallback domain
@@ -49,6 +60,16 @@ const axiosInstance = axios.create({
         'Cache-Control': 'max-age=0'
     },
     timeout: 45000
+});
+
+// AFTER axiosInstance is defined we can patch it, so insert right below its creation.
+// Monkey-patch axiosInstance so every outbound request uses the env proxy
+['get', 'head', 'post'].forEach((method) => {
+  const original = axiosInstance[method].bind(axiosInstance);
+  axiosInstance[method] = (...args) => {
+    if (typeof args[0] === 'string') args[0] = proxify(args[0]);
+    return original(...args);
+  };
 });
 
 // Search function for topmovies.rodeo
@@ -189,11 +210,11 @@ async function resolveSidToDriveleech(sidUrl) {
     }));
 
     try {
-        const proxyUrl = 'https://reliable-daffodil-3d00e3.netlify.app/?destination=';
-        console.log(`  [SID] Using hardcoded proxy: ${proxyUrl}`);
+        const proxyUrl = process.env.SID_RESOLVER_PROXY || 'https://reliable-daffodil-3d00e3.netlify.app/?destination=';
+        console.log(`  [SID] Using proxy: ${proxyUrl}`);
 
-        const proxify = (url) => `${proxyUrl}${encodeURIComponent(url)}`;
-        const proxiedSidUrl = proxify(sidUrl);
+        const proxifyLocal = (url) => `${proxyUrl}${encodeURIComponent(url)}`;
+        const proxiedSidUrl = proxifyLocal(sidUrl);
         // Step 0: Get the _wp_http value
         console.log("  [SID] Step 0: Fetching initial page...");
         const responseStep0 = await session.get(proxiedSidUrl);
@@ -211,7 +232,7 @@ async function resolveSidToDriveleech(sidUrl) {
         // Step 1: POST to the first form's action URL
         console.log("  [SID] Step 1: Submitting initial form...");
         const step1Data = new URLSearchParams({ '_wp_http': wp_http_step1 });
-        const responseStep1 = await session.post(proxify(absoluteActionUrl1), step1Data, {
+        const responseStep1 = await session.post(proxifyLocal(absoluteActionUrl1), step1Data, {
             headers: { 'Referer': proxiedSidUrl, 'Content-Type': 'application/x-www-form-urlencoded' }
         });
 
@@ -232,7 +253,7 @@ async function resolveSidToDriveleech(sidUrl) {
         // Step 3: POST to the verification URL
         console.log("  [SID] Step 3: Submitting verification...");
         const step2Data = new URLSearchParams({ '_wp_http2': wp_http2, 'token': token });
-        const responseStep2 = await session.post(proxify(absoluteActionUrl2), step2Data, {
+        const responseStep2 = await session.post(proxifyLocal(absoluteActionUrl2), step2Data, {
             headers: { 'Referer': responseStep1.request.res.responseUrl, 'Content-Type': 'application/x-www-form-urlencoded' }
         });
 
@@ -268,7 +289,7 @@ async function resolveSidToDriveleech(sidUrl) {
         const cookieDomain = proxyUrl ? new URL(proxyUrl).origin : origin;
         await jar.setCookie(`${cookieName}=${cookieValue}`, cookieDomain);
         
-        const finalResponse = await session.get(proxify(finalUrl), {
+        const finalResponse = await session.get(proxifyLocal(finalUrl), {
             headers: { 'Referer': responseStep2.request.res.responseUrl }
         });
 

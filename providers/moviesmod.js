@@ -12,6 +12,17 @@ const { URLSearchParams, URL } = require('url');
 const fs = require('fs').promises;
 const path = require('path');
 const { findBestMatch } = require('string-similarity');
+// NEW: universal proxifier
+const { proxify } = require('./_httpProxy');
+
+// Monkey-patch axios for this provider so every outbound call is proxified
+['get', 'head', 'post'].forEach((method) => {
+  const original = axios[method].bind(axios);
+  axios[method] = (...args) => {
+    if (typeof args[0] === 'string') args[0] = proxify(args[0]);
+    return original(...args);
+  };
+});
 
 function escapeRegExp(string) {
   return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // $& means the whole matched string
@@ -373,11 +384,11 @@ async function resolveTechUnblockedLink(sidUrl) {
   try {
     // Step 0: Get the _wp_http value
     console.log("  [SID] Step 0: Fetching initial page via proxy...");
-    const proxyUrl = 'https://reliable-daffodil-3d00e3.netlify.app/?destination=';
-    console.log(`  [SID] Using hardcoded proxy: ${proxyUrl}`);
-    
-    const proxify = (url) => `${proxyUrl}${encodeURIComponent(url)}`;
-    const proxiedSidUrl = proxify(sidUrl);
+    const proxyUrl = process.env.SID_RESOLVER_PROXY || 'https://reliable-daffodil-3d00e3.netlify.app/?destination=';
+    console.log(`  [SID] Using proxy: ${proxyUrl}`);
+
+    const proxifyLocal = (url) => `${proxyUrl}${encodeURIComponent(url)}`;
+    const proxiedSidUrl = proxifyLocal(sidUrl);
     const responseStep0 = await session.get(proxiedSidUrl);
     let $ = cheerio.load(responseStep0.data);
     const initialForm = $('#landing');
@@ -393,7 +404,7 @@ async function resolveTechUnblockedLink(sidUrl) {
     console.log("  [SID] Step 1: Submitting initial form...");
     const step1Data = new URLSearchParams({ '_wp_http': wp_http_step1 });
     const absoluteActionUrl1 = new URL(action_url_step1, origin).href;
-    const responseStep1 = await session.post(proxify(absoluteActionUrl1), step1Data, {
+    const responseStep1 = await session.post(proxifyLocal(absoluteActionUrl1), step1Data, {
       headers: { 'Referer': proxiedSidUrl, 'Content-Type': 'application/x-www-form-urlencoded' }
     });
 
@@ -414,7 +425,7 @@ async function resolveTechUnblockedLink(sidUrl) {
     console.log("  [SID] Step 3: Submitting verification...");
     const step2Data = new URLSearchParams({ '_wp_http2': wp_http2, 'token': token });
     const absoluteActionUrl2 = new URL(action_url_step2, origin).href;
-    const responseStep2 = await session.post(proxify(absoluteActionUrl2), step2Data, {
+    const responseStep2 = await session.post(proxifyLocal(absoluteActionUrl2), step2Data, {
       headers: { 'Referer': responseStep1.request.res.responseUrl, 'Content-Type': 'application/x-www-form-urlencoded' }
     });
 
@@ -450,7 +461,7 @@ async function resolveTechUnblockedLink(sidUrl) {
     const cookieDomain = proxyUrl ? new URL(proxyUrl).origin : origin;
     await jar.setCookie(`${cookieName}=${cookieValue}`, cookieDomain);
     
-    const finalResponse = await session.get(proxify(finalUrl), {
+    const finalResponse = await session.get(proxifyLocal(finalUrl), {
       headers: { 'Referer': responseStep2.request.res.responseUrl }
     });
 
