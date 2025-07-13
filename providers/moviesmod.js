@@ -870,10 +870,33 @@ async function getMoviesModStreams(tmdbId, mediaType, seasonNum = null, episodeN
 
             if (relevantLinks.length > 0) {
                 console.log(`[MoviesMod] Found ${relevantLinks.length} relevant quality links.`);
+                // Build a cache entry that already contains driveleech / driveseed links (no SID or modrefer indirections)
                 const qualityPromises = relevantLinks.map(async (link) => {
-                    const finalLinks = await resolveIntermediateLink(link.url, selectedResult.url, link.quality);
-                    if (finalLinks && finalLinks.length > 0) {
-                        return { quality: link.quality, finalLinks: finalLinks };
+                    const intermediateLinks = await resolveIntermediateLink(link.url, selectedResult.url, link.quality);
+                    if (!intermediateLinks || intermediateLinks.length === 0) return null;
+
+                    const processedLinks = [];
+                    for (const fl of intermediateLinks) {
+                        let url = fl.url;
+
+                        // Resolve SID-protected URLs up-front so we only cache clean driveleech / driveseed links
+                        if (url.includes('tech.unblockedgames.world') || url.includes('tech.creativeexpressionsblog.com')) {
+                            const resolved = await resolveTechUnblockedLink(url);
+                            if (resolved) {
+                                url = resolved;
+                            } else {
+                                continue; // Skip if SID resolution failed
+                            }
+                        }
+
+                        // Keep only driveseed.org URLs in cache (moviesmod resolver expects those)
+                        if (url.includes('driveseed.org')) {
+                            processedLinks.push({ server: fl.server || 'unknown', url });
+                        }
+                    }
+
+                    if (processedLinks.length > 0) {
+                        return { quality: link.quality, finalLinks: processedLinks };
                     }
                     return null;
                 });
